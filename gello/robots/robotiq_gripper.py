@@ -348,7 +348,7 @@ class RobotiqGripper:
 def main():
     # test open and closing the gripper
     gripper = RobotiqGripper()
-    gripper.connect(hostname="192.168.1.10", port=63352)
+    gripper.connect(hostname="192.168.0.119", port=63352)
     # gripper.activate()
     print(gripper.get_current_position())
     gripper.move(20, 255, 1)
