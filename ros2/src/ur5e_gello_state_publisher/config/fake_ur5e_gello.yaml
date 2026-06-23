@@ -1,0 +1,18 @@
+fake_ur5e_gello_publisher:
+  ros__parameters:
+    publish_rate_hz: 25.0
+    frame_id: "base"
+    joint_state_topic: "gello/joint_states"
+    trajectory_topic: "joint_trajectory_controller/joint_trajectory"
+    gripper_topic: "gello/gripper_position"
+    publish_trajectory: true
+    trajectory_time_from_start_sec: 0.12
+    amplitude_scale: 0.35
+    motion_period_sec: 8.0
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint

@@ -1,3 +1,5 @@
 dynamixel_sdk
+pyserial
 PyYAML
 tyro
+ur-rtde

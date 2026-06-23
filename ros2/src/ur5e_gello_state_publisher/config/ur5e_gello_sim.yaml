@@ -1,0 +1,38 @@
+ur5e_gello_publisher:
+  ros__parameters:
+    port: "/dev/ttyUSB0"
+    baudrate: 1000000
+    offset_file: "servo_offsets.json"
+    publish_rate_hz: 25.0
+    frame_id: "base"
+    joint_state_topic: "gello/joint_states"
+    trajectory_topic: "joint_trajectory_controller/joint_trajectory"
+    gripper_topic: "gello/gripper_position"
+    gripper_command_topic: "onrobot/finger_width_controller/commands"
+    gripper_trajectory_topic: "finger_width_trajectory_controller/joint_trajectory"
+    publish_trajectory: true
+    publish_gripper_command: false
+    publish_gripper_trajectory: true
+    trajectory_time_from_start_sec: 0.12
+    gripper_joint_name: "finger_width"
+    gripper_min_rad: -1.5
+    gripper_max_rad: 1.5
+    gripper_min_width: 0.01
+    gripper_max_width: 0.13
+    invert_gripper: true
+    align_to_robot_on_start: false
+    robot_joint_state_topic: "joint_states"
+    joint_position_offsets:
+      - 1.5708
+      - 3.1416
+      - 3.1416
+      - 1.5708
+      - 4.7124
+      - 0.0
+    joint_names:
+      - shoulder_pan_joint
+      - shoulder_lift_joint
+      - elbow_joint
+      - wrist_1_joint
+      - wrist_2_joint
+      - wrist_3_joint
