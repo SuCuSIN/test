@@ -136,6 +136,9 @@ class STS3215UR5eReader:
         self.previous_radians: Dict[int, Optional[float]] = {
             servo_id: None for servo_id in self.servo_ids
         }
+        self.unclamped_radians: Dict[int, Optional[float]] = {
+            servo_id: None for servo_id in self.servo_ids
+        }
         self.previous_raw_positions: Dict[int, Optional[int]] = {
             servo_id: None for servo_id in self.servo_ids
         }
@@ -238,20 +241,24 @@ class STS3215UR5eReader:
             return 0.0 if previous is None else previous
 
         previous_raw = self.previous_raw_positions[servo_id]
-        previous_rad = self.previous_radians[servo_id]
+        previous_unclamped_rad = self.unclamped_radians[servo_id]
 
-        if previous_raw is None or previous_rad is None:
+        if previous_raw is None or previous_unclamped_rad is None:
             raw_delta = self.wrapped_delta(current_pos, offset)
-            radian = raw_delta * self.signs[servo_id] * self.count_to_rad
+            unclamped_radian = raw_delta * self.signs[servo_id] * self.count_to_rad
         else:
             raw_step = self.wrapped_delta(current_pos, previous_raw)
-            radian = previous_rad + raw_step * self.signs[servo_id] * self.count_to_rad
+            unclamped_radian = (
+                previous_unclamped_rad
+                + raw_step * self.signs[servo_id] * self.count_to_rad
+            )
 
         min_limit, max_limit = self.joint_limits[servo_id]
-        radian = self.clamp(radian, min_limit, max_limit)
+        radian = self.clamp(unclamped_radian, min_limit, max_limit)
         radian = self.limit_step(servo_id, radian)
 
         self.previous_raw_positions[servo_id] = current_pos
+        self.unclamped_radians[servo_id] = unclamped_radian
         self.previous_radians[servo_id] = radian
         return radian
 
@@ -340,6 +347,9 @@ class UR5eGelloPublisher(Node):
         self.declare_parameter("gripper_max_width", 0.1)
         self.declare_parameter("gripper_min_raw", 3400)
         self.declare_parameter("gripper_max_raw", 3800)
+        self.declare_parameter("gripper_command_deadband_m", 0.004)
+        self.declare_parameter("gripper_smoothing_alpha", 0.45)
+        self.declare_parameter("gripper_reversal_deadband_m", 0.008)
         self.declare_parameter("invert_gripper", False)
         self.declare_parameter("align_to_robot_on_start", True)
         self.declare_parameter("robot_joint_state_topic", "joint_states")
@@ -413,6 +423,19 @@ class UR5eGelloPublisher(Node):
         self.gripper_max_width = float(self.get_parameter("gripper_max_width").value)
         self.gripper_min_raw = int(self.get_parameter("gripper_min_raw").value)
         self.gripper_max_raw = int(self.get_parameter("gripper_max_raw").value)
+        self.gripper_command_deadband_m = max(
+            0.0,
+            float(self.get_parameter("gripper_command_deadband_m").value),
+        )
+        self.gripper_smoothing_alpha = self.clamp(
+            float(self.get_parameter("gripper_smoothing_alpha").value),
+            0.0,
+            1.0,
+        )
+        self.gripper_reversal_deadband_m = max(
+            0.0,
+            float(self.get_parameter("gripper_reversal_deadband_m").value),
+        )
         self.invert_gripper = bool(self.get_parameter("invert_gripper").value)
         self.align_to_robot_on_start = bool(
             self.get_parameter("align_to_robot_on_start").value
@@ -422,6 +445,9 @@ class UR5eGelloPublisher(Node):
         self.latest_robot_joints: Optional[List[float]] = None
         self.smoothed_target_joints: Optional[List[float]] = None
         self.filtered_commanded_joints: Optional[List[float]] = None
+        self.filtered_gripper_width: Optional[float] = None
+        self.last_gripper_command_width: Optional[float] = None
+        self.last_gripper_direction = 0
         self.last_command_time = self.get_clock().now()
         self.rtde_control_interface = None
         self.rtde_receive_interface = None
@@ -581,7 +607,7 @@ class UR5eGelloPublisher(Node):
         gripper_msg = Float32()
         gripper_msg.data = float(gripper)
         self.gripper_publisher.publish(gripper_msg)
-        gripper_width = self.gripper_to_width(gripper)
+        gripper_width = self.filter_gripper_width(self.gripper_to_width(gripper))
 
         if self.publish_gripper_command:
             gripper_command = Float64MultiArray()
@@ -730,6 +756,38 @@ class UR5eGelloPublisher(Node):
         return self.gripper_min_width + normalized * (
             self.gripper_max_width - self.gripper_min_width
         )
+
+    def filter_gripper_width(self, width: float) -> float:
+        width = self.clamp(width, self.gripper_min_width, self.gripper_max_width)
+        if self.filtered_gripper_width is None:
+            self.filtered_gripper_width = width
+            self.last_gripper_command_width = width
+            return width
+
+        self.filtered_gripper_width = (
+            (1.0 - self.gripper_smoothing_alpha) * self.filtered_gripper_width
+            + self.gripper_smoothing_alpha * width
+        )
+
+        if self.last_gripper_command_width is None:
+            self.last_gripper_command_width = self.filtered_gripper_width
+            return self.filtered_gripper_width
+
+        delta = self.filtered_gripper_width - self.last_gripper_command_width
+        if abs(delta) < self.gripper_command_deadband_m:
+            return self.last_gripper_command_width
+
+        direction = 1 if delta > 0.0 else -1
+        if (
+            self.last_gripper_direction != 0
+            and direction != self.last_gripper_direction
+            and abs(delta) < self.gripper_reversal_deadband_m
+        ):
+            return self.last_gripper_command_width
+
+        self.last_gripper_direction = direction
+        self.last_gripper_command_width = self.filtered_gripper_width
+        return self.filtered_gripper_width
 
     def destroy_node(self) -> None:
         if self.rtde_control_interface is not None:

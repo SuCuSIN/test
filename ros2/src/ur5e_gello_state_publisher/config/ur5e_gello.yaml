@@ -7,9 +7,9 @@ ur5e_gello_publisher:
     robot_ip: "192.168.0.119"
     rtde_velocity: 0.5
     rtde_acceleration: 0.5
-    rtde_dt: 0.002
-    rtde_lookahead_time: 0.2
-    rtde_gain: 100
+    rtde_dt: 0.008
+    rtde_lookahead_time: 0.08
+    rtde_gain: 300
     publish_rate_hz: 60.0
     frame_id: "base"
     joint_state_topic: "gello/joint_states"
@@ -24,9 +24,9 @@ ur5e_gello_publisher:
     publish_gripper_command: true
     publish_gripper_trajectory: true
     trajectory_time_from_start_sec: 0.10
-    command_smoothing_alpha: 0.75
+    command_smoothing_alpha: 0.9
     max_joint_speed_rad_per_sec: 0.0
-    max_joint_delta_rad_per_cycle: 0.12
+    max_joint_delta_rad_per_cycle: 0.18
     command_deadband_rad: 0.003
     gripper_joint_name: "finger_width"
     gripper_min_rad: -1.5
@@ -35,6 +35,9 @@ ur5e_gello_publisher:
     gripper_max_width: 0.13
     gripper_min_raw: 3400
     gripper_max_raw: 3800
+    gripper_command_deadband_m: 0.004
+    gripper_smoothing_alpha: 0.45
+    gripper_reversal_deadband_m: 0.008
     invert_gripper: false
     align_to_robot_on_start: true
     robot_joint_state_topic: "joint_states"
