@@ -59,6 +59,7 @@ class RG6ToolTcpNode(Node):
         self.declare_parameter("max_close_step_per_send", 0.012)
         self.declare_parameter("max_open_step_per_send", 0.0)
         self.declare_parameter("reversal_deadband", 0.005)
+        self.declare_parameter("close_latch_release_m", 0.020)
         self.declare_parameter("hold_on_grip_detected", True)
         self.declare_parameter("status_read_rate_hz", 4.0)
         self.declare_parameter("grip_hold_margin", 0.0)
@@ -69,7 +70,7 @@ class RG6ToolTcpNode(Node):
         self.declare_parameter("grip_close_request_margin", 0.003)
         self.declare_parameter("actual_width_register", 267)
         self.declare_parameter("send_stop_on_grip", False)
-        self.declare_parameter("send_hold_on_grip", True)
+        self.declare_parameter("send_hold_on_grip", False)
         self.declare_parameter("persistent_connection", False)
 
         self.robot_ip = str(self.get_parameter("robot_ip").value)
@@ -93,6 +94,9 @@ class RG6ToolTcpNode(Node):
             self.get_parameter("max_open_step_per_send").value
         )
         self.reversal_deadband = float(self.get_parameter("reversal_deadband").value)
+        self.close_latch_release_m = float(
+            self.get_parameter("close_latch_release_m").value
+        )
         self.hold_on_grip_detected = bool(
             self.get_parameter("hold_on_grip_detected").value
         )
@@ -126,6 +130,7 @@ class RG6ToolTcpNode(Node):
         self.current_width = None
         self.last_sent_width = None
         self.last_direction = 0
+        self.close_latch_width = None
         self.last_status_read_time = 0.0
         self.grip_detected = False
         self.grip_hold_width = None
@@ -153,9 +158,35 @@ class RG6ToolTcpNode(Node):
         if not msg.data:
             return
         first_command = self.raw_target_width is None
-        self.raw_target_width = max(
+        previous_raw_target = self.raw_target_width
+        requested_width = max(
             self.min_width,
             min(self.max_width, float(msg.data[0])),
+        )
+
+        if previous_raw_target is not None:
+            if requested_width < previous_raw_target - self.command_deadband:
+                if self.close_latch_width is None:
+                    self.close_latch_width = requested_width
+                else:
+                    self.close_latch_width = min(
+                        self.close_latch_width,
+                        requested_width,
+                    )
+            elif (
+                self.close_latch_width is not None
+                and requested_width < self.close_latch_width + self.close_latch_release_m
+            ):
+                requested_width = self.close_latch_width
+            elif (
+                self.close_latch_width is not None
+                and requested_width >= self.close_latch_width + self.close_latch_release_m
+            ):
+                self.close_latch_width = None
+
+        self.raw_target_width = max(
+            self.min_width,
+            min(self.max_width, requested_width),
         )
         if self.target_width is None:
             self.target_width = self.raw_target_width

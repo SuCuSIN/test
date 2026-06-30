@@ -22,6 +22,7 @@ setup(
     tests_require=["pytest"],
     entry_points={
         "console_scripts": [
+            "auto_demo_recorder = ur5e_gello_state_publisher.auto_demo_recorder:main",
             "fake_ur5e_gello_publisher = ur5e_gello_state_publisher.fake_ur5e_gello_publisher:main",
             "rg6_tool_tcp_node = ur5e_gello_state_publisher.rg6_tool_tcp_node:main",
             "ur5e_gello_publisher = ur5e_gello_state_publisher.ur5e_gello_publisher:main",
