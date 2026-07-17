@@ -3,15 +3,18 @@ ur5e_gello_publisher:
     port: "/dev/ttyUSB0"
     baudrate: 1000000
     offset_file: "servo_offsets.json"
+    read_servo_ids: [5, 6, 7]
+    gripper_servo_id: 7
     publish_rate_hz: 25.0
     frame_id: "base"
     joint_state_topic: "gello/joint_states"
     trajectory_topic: "joint_trajectory_controller/joint_trajectory"
     gripper_topic: "gello/gripper_position"
+    gripper_raw_topic: "gello/gripper_raw"
     gripper_command_topic: "onrobot/finger_width_controller/commands"
     gripper_trajectory_topic: "finger_width_trajectory_controller/joint_trajectory"
     publish_trajectory: true
-    publish_gripper_command: false
+    publish_gripper_command: true
     publish_gripper_trajectory: true
     trajectory_time_from_start_sec: 0.12
     gripper_joint_name: "finger_width"
@@ -19,7 +22,23 @@ ur5e_gello_publisher:
     gripper_max_rad: 1.5
     gripper_min_width: 0.01
     gripper_max_width: 0.13
-    invert_gripper: true
+    gripper_min_raw: 3459
+    gripper_max_raw: 4000
+    gripper_encoder_ticks: 4096
+    gripper_wrap_open_raw: 700
+    gripper_control_mode: "open_close"
+    gripper_discrete_start_open: true
+    gripper_discrete_close_threshold: 0.35
+    gripper_discrete_open_threshold: 0.65
+    gripper_discrete_step_m: 0.0
+    gripper_command_publish_rate_hz: 20.0
+    gripper_command_publish_deadband_m: 0.008
+    gripper_command_deadband_m: 0.003
+    gripper_smoothing_alpha: 0.40
+    gripper_reversal_deadband_m: 0.030
+    gripper_close_latch_release_m: 0.040
+    gripper_open_confirm_cycles: 8
+    invert_gripper: false
     align_to_robot_on_start: false
     robot_joint_state_topic: "joint_states"
     joint_position_offsets:

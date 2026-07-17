@@ -33,11 +33,22 @@ ur5e_gello_publisher:
     gripper_max_rad: 1.5
     gripper_min_width: 0.012
     gripper_max_width: 0.13
-    gripper_min_raw: 3400
-    gripper_max_raw: 3800
-    gripper_command_deadband_m: 0.004
-    gripper_smoothing_alpha: 0.45
-    gripper_reversal_deadband_m: 0.008
+    gripper_min_raw: 3459
+    gripper_max_raw: 4000
+    gripper_encoder_ticks: 4096
+    gripper_wrap_open_raw: 700
+    gripper_control_mode: "open_close"
+    gripper_discrete_start_open: true
+    gripper_discrete_close_threshold: 0.35
+    gripper_discrete_open_threshold: 0.65
+    gripper_discrete_step_m: 0.0
+    gripper_command_deadband_m: 0.003
+    gripper_command_publish_rate_hz: 20.0
+    gripper_command_publish_deadband_m: 0.008
+    gripper_smoothing_alpha: 0.40
+    gripper_reversal_deadband_m: 0.030
+    gripper_close_latch_release_m: 0.040
+    gripper_open_confirm_cycles: 8
     invert_gripper: false
     align_to_robot_on_start: true
     robot_joint_state_topic: "joint_states"

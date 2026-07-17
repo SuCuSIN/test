@@ -1,0 +1,143 @@
+{
+    "codebase_version": "v3.0",
+    "repo_id": "local/ur5e_gello_rg6",
+    "robot_type": "ur5e_gello_rg6",
+    "total_episodes": 3,
+    "total_frames": 1408,
+    "total_tasks": 1,
+    "chunks_size": 1000,
+    "data_files_size_in_mb": 100,
+    "video_files_size_in_mb": 200,
+    "fps": 10,
+    "splits": {
+        "train": "0:3"
+    },
+    "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+    "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+    "features": {
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": {
+                "motors": [
+                    "shoulder_pan",
+                    "shoulder_lift",
+                    "elbow",
+                    "wrist_1",
+                    "wrist_2",
+                    "wrist_3",
+                    "gripper_width"
+                ]
+            }
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": {
+                "motors": [
+                    "shoulder_pan",
+                    "shoulder_lift",
+                    "elbow",
+                    "wrist_1",
+                    "wrist_2",
+                    "wrist_3",
+                    "gripper_width"
+                ]
+            }
+        },
+        "observation.images.main": {
+            "dtype": "video",
+            "shape": [
+                1080,
+                1920,
+                3
+            ],
+            "names": [
+                "height",
+                "width",
+                "channel"
+            ]
+        },
+        "joints": {
+            "dtype": "float32",
+            "shape": [
+                6
+            ],
+            "names": {
+                "motors": [
+                    "shoulder_pan",
+                    "shoulder_lift",
+                    "elbow",
+                    "wrist_1",
+                    "wrist_2",
+                    "wrist_3"
+                ]
+            }
+        },
+        "gripper": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": [
+                "gripper_width"
+            ]
+        },
+        "actions": {
+            "dtype": "float32",
+            "shape": [
+                7
+            ],
+            "names": {
+                "motors": [
+                    "shoulder_pan",
+                    "shoulder_lift",
+                    "elbow",
+                    "wrist_1",
+                    "wrist_2",
+                    "wrist_3",
+                    "gripper_width"
+                ]
+            }
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    }
+}

@@ -23,7 +23,9 @@ setup(
     entry_points={
         "console_scripts": [
             "auto_demo_recorder = ur5e_gello_state_publisher.auto_demo_recorder:main",
+            "bluetooth_gripper_bridge = ur5e_gello_state_publisher.bluetooth_gripper_bridge:main",
             "fake_ur5e_gello_publisher = ur5e_gello_state_publisher.fake_ur5e_gello_publisher:main",
+            "lerobot_demo_recorder = ur5e_gello_state_publisher.lerobot_demo_recorder:main",
             "rg6_tool_tcp_node = ur5e_gello_state_publisher.rg6_tool_tcp_node:main",
             "ur5e_gello_publisher = ur5e_gello_state_publisher.ur5e_gello_publisher:main",
         ],
