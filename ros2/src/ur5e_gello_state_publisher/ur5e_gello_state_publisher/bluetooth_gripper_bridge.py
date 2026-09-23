@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import time
-from typing import Optional
+from typing import List, Optional
 import socket
+import re
 
 import rclpy
 from rclpy.node import Node
@@ -32,6 +33,11 @@ class BluetoothGripperBridge(Node):
         self.declare_parameter("command_deadband", 2)
         self.declare_parameter("speed", 200)
         self.declare_parameter("acceleration", 20)
+        self.declare_parameter("tactile_topic", "")
+        self.declare_parameter("tactile_contact_threshold", 25.0)
+        self.declare_parameter("tactile_baseline_samples", 50)
+        self.declare_parameter("tactile_release_delta", 40.0)
+        self.declare_parameter("position_report_hz", 0.0)
 
         self.port = str(self.get_parameter("port").value)
         self.minimum_raw = float(self.get_parameter("controller_min_raw").value)
@@ -47,6 +53,15 @@ class BluetoothGripperBridge(Node):
         self.deadband = max(0, int(self.get_parameter("command_deadband").value))
         self.speed = int(self.get_parameter("speed").value)
         self.acceleration = int(self.get_parameter("acceleration").value)
+        self.tactile_contact_threshold = max(
+            0.0, float(self.get_parameter("tactile_contact_threshold").value)
+        )
+        self.tactile_baseline_samples = max(
+            1, int(self.get_parameter("tactile_baseline_samples").value)
+        )
+        self.tactile_release_delta = max(
+            0.0, float(self.get_parameter("tactile_release_delta").value)
+        )
 
         self.serial_port: Optional[serial.Serial] = None
         self.socket: Optional[socket.socket] = None
@@ -55,20 +70,41 @@ class BluetoothGripperBridge(Node):
         self.filtered_target: Optional[float] = None
         self.last_command: Optional[int] = None
         self.last_connect_attempt = 0.0
+        self.response_buffer = ''
+        self.position_report_hz = max(0.0, float(self.get_parameter('position_report_hz').value))
+        self.next_position_read = 0.0
+        self.position_read_id = 1
+        self.position_read_pending = None
+        self.actual_publisher = self.create_publisher(Float64MultiArray, '/gello/gripper_actual_raw', 10)
+        self.command_report_publisher = self.create_publisher(Float64MultiArray, '/gello/no_anyskin_command_width', 10)
+        self.tactile_baseline: Optional[List[float]] = None
+        self.tactile_baseline_count = 0
+        self.tactile_contact_strength = 0.0
+        self.tactile_latched_command: Optional[float] = None
 
         topic = str(self.get_parameter("topic").value)
         self.create_subscription(Float32, topic, self.raw_callback, 10)
         command_topic = str(self.get_parameter("command_topic").value)
         if command_topic:
             self.create_subscription(Float64MultiArray, command_topic, self.command_callback, 10)
+        tactile_topic = str(self.get_parameter("tactile_topic").value)
+        if tactile_topic:
+            self.create_subscription(Float64MultiArray, tactile_topic, self.tactile_callback, 10)
         rate = max(1.0, float(self.get_parameter("publish_rate_hz").value))
         self.create_timer(1.0 / rate, self.update)
         self.get_logger().info(f"Mapping {topic} to Bluetooth gripper on {self.port}")
         if command_topic:
             self.get_logger().info(f"Also mapping width commands from {command_topic}")
+        if tactile_topic:
+            self.get_logger().info(
+                f"Using tactile contact safety from {tactile_topic} "
+                f"(threshold={self.tactile_contact_threshold:.2f})"
+            )
 
     def raw_callback(self, message: Float32) -> None:
         raw = float(message.data)
+        if self.latest_target is None:
+            self.get_logger().info(f"First GELLO lever input received: raw={raw}")
         maximum = self.maximum_raw
         if self.wrap_raw >= 0.0:
             if raw <= self.wrap_raw:
@@ -92,6 +128,37 @@ class BluetoothGripperBridge(Node):
         normalized = max(0.0, min(1.0, (width - self.input_min_width) / span))
         # Width max is open, while PAIR_MOVE 0 is open.
         self.latest_target = self.output_max * (1.0 - normalized)
+
+    def tactile_callback(self, message: Float64MultiArray) -> None:
+        if not message.data:
+            return
+        values = [float(value) for value in message.data]
+        if self.tactile_baseline is None:
+            self.tactile_baseline = values
+            self.tactile_baseline_count = 1
+            return
+
+        if len(values) != len(self.tactile_baseline):
+            self.tactile_baseline = values
+            self.tactile_baseline_count = 1
+            self.tactile_latched_command = None
+            self.get_logger().warn("Tactile vector size changed; recalibrating baseline.")
+            return
+
+        if self.tactile_baseline_count < self.tactile_baseline_samples:
+            count = self.tactile_baseline_count
+            self.tactile_baseline = [
+                (baseline * count + value) / (count + 1)
+                for baseline, value in zip(self.tactile_baseline, values)
+            ]
+            self.tactile_baseline_count += 1
+            return
+
+        squared_delta = sum(
+            (value - baseline) ** 2
+            for baseline, value in zip(self.tactile_baseline, values)
+        )
+        self.tactile_contact_strength = squared_delta ** 0.5
 
     def connect(self) -> bool:
         now = time.monotonic()
@@ -138,7 +205,10 @@ class BluetoothGripperBridge(Node):
     def read_available(self) -> str:
         if self.socket is not None:
             try:
-                return self.socket.recv(4096).decode(errors="replace")
+                data = self.socket.recv(4096)
+                if not data:
+                    raise ConnectionError("Bluetooth TCP peer closed the connection")
+                return data.decode(errors="replace")
             except BlockingIOError:
                 return ""
         if self.serial_port is None:
@@ -164,6 +234,31 @@ class BluetoothGripperBridge(Node):
             self.socket.close()
         self.serial_port = None
         self.socket = None
+        self.response_buffer = ''
+        self.position_read_pending = None
+
+    def record_response(self, response):
+        match = re.fullmatch(r'POSITION id=([12]) logical=-?\d+ raw=(\d+) status=0x0+', response)
+        if match and 0 <= int(match[2]) <= 4095:
+            message = Float64MultiArray()
+            message.data = [float(match[1]), float(match[2])]
+            self.actual_publisher.publish(message)
+            if self.position_read_pending == int(match[1]):
+                self.position_read_pending = None
+
+    def poll_position_report(self):
+        now = time.monotonic()
+        if self.position_report_hz <= 0 or now < self.next_position_read:
+            return
+        if self.position_read_pending is not None:
+            self.get_logger().warning('Position report timed out; no measurement recorded', throttle_duration_sec=5.0)
+            self.position_read_pending = None
+            self.next_position_read = now + 1.0
+            return
+        self.write_command(f'READ {self.position_read_id}\n')
+        self.position_read_pending = self.position_read_id
+        self.position_read_id = 3 - self.position_read_id
+        self.next_position_read = now + max(0.2, 1.0 / self.position_report_hz)
 
     def update(self) -> None:
         if not self.is_connected():
@@ -171,17 +266,25 @@ class BluetoothGripperBridge(Node):
                 return
         try:
             responses = self.read_available()
-            for response in responses.splitlines():
+            self.response_buffer += responses
+            while '\n' in self.response_buffer:
+                response, self.response_buffer = self.response_buffer.split('\n', 1)
+                response = response.strip()
                 if response:
+                    self.record_response(response)
                     self.get_logger().info(response)
+            if len(self.response_buffer) > 4096:
+                self.response_buffer = ''
+            self.poll_position_report()
 
             if self.latest_target is None:
                 return
+            target = self.apply_tactile_safety(self.latest_target)
             if self.filtered_target is None:
-                self.filtered_target = self.latest_target
+                self.filtered_target = target
             else:
                 desired = self.filtered_target + self.alpha * (
-                    self.latest_target - self.filtered_target
+                    target - self.filtered_target
                 )
                 delta = max(-self.max_step, min(self.max_step, desired - self.filtered_target))
                 self.filtered_target += delta
@@ -191,11 +294,47 @@ class BluetoothGripperBridge(Node):
                 return
             payload = f"PAIR_MOVE {command} {self.speed} {self.acceleration}\n"
             self.write_command(payload)
+            width = self.input_max_width - (command / self.output_max) * (self.input_max_width - self.input_min_width)
+            report = Float64MultiArray()
+            report.data = [float(width)]
+            self.command_report_publisher.publish(report)
+            self.get_logger().info(
+                f"Gripper TX (not motor ACK): {payload.strip()}", throttle_duration_sec=1.0)
             self.last_command = command
         except (serial.SerialException, OSError) as error:
             self.get_logger().warning(f"Bluetooth connection lost: {error}")
             self.close_connection()
             self.last_command = None
+            self.latest_target = None
+            self.filtered_target = None
+
+    def apply_tactile_safety(self, target: float) -> float:
+        if self.tactile_baseline_count < self.tactile_baseline_samples:
+            return target
+
+        if self.tactile_latched_command is not None:
+            if target <= self.tactile_latched_command - self.tactile_release_delta:
+                self.get_logger().info("Tactile grip hold released by open command.")
+                self.tactile_latched_command = None
+                return target
+            return min(target, self.tactile_latched_command)
+
+        reference = (
+            self.filtered_target
+            if self.filtered_target is not None
+            else float(self.last_command or self.output_min)
+        )
+        is_closing = target > reference
+        if is_closing and self.tactile_contact_strength >= self.tactile_contact_threshold:
+            self.tactile_latched_command = reference
+            self.get_logger().info(
+                "Tactile contact detected; holding gripper command at "
+                f"{self.tactile_latched_command:.0f} "
+                f"(strength={self.tactile_contact_strength:.2f})."
+            )
+            return self.tactile_latched_command
+
+        return target
 
     def destroy_node(self) -> bool:
         self.close_connection()

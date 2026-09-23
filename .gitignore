@@ -33,6 +33,14 @@ ros2/build/
 ros2/install/
 ros2/log/
 
+# Local experiment recordings and generated reports
+custom_gripper_test/anyskin_raw_records/
+custom_gripper_test/load_reports/
+custom_gripper_test/regrasp_probe_reports/
+custom_gripper_test/slip_model_reports/
+custom_gripper_test/tracking_reports/
+ros2/lerobot_demos/
+
 # robot packages
 third_party/i2rt/
 

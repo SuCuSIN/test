@@ -21,19 +21,20 @@ constexpr uint8_t kLastServoId = 20;
 constexpr int kServoMiddlePosition = 2047;
 constexpr int kServoMinPosition = 0;
 constexpr int kServoMaxPosition = 4095;
-constexpr int kDefaultMoveSpeed = 200;
-constexpr int kDefaultMoveAcceleration = 20;
+constexpr int kDefaultMoveSpeed = 300;
+constexpr int kDefaultMoveAcceleration = 30;
 constexpr int kGripperCommandMin = 0;
 constexpr int kGripperCommandMax = 500;
-constexpr int kServo1OpenRaw = 2430;
-constexpr int kServo1ClosedRaw = 1553;
-constexpr int kServo2OpenRaw = 1547;
-constexpr int kServo2ClosedRaw = 2424;
+constexpr int kServo1OpenRaw = 2000;
+constexpr int kServo1ClosedRaw = 1520;
+constexpr int kServo2OpenRaw = 2000;
+constexpr int kServo2ClosedRaw = 2480;
 constexpr int kConnectMoveSpeed = 100;
 constexpr int kConnectMoveAcceleration = 10;
 constexpr int kLoadCurrentThreshold = 100;
 constexpr int kLoadConsecutiveSamples = 2;
 constexpr uint32_t kLoadPollIntervalMs = 50;
+constexpr uint32_t kServoResponseTimeoutMs = 80;
 constexpr int kTargetPositionTolerance = 8;
 constexpr int kLoadLatchReleaseCommandDelta = 20;
 constexpr int kOledWidth = 128;
@@ -213,6 +214,12 @@ class Sts3215Bus {
     return (response[0] | (response[1] << 8)) & 0x7fff;
   }
 
+  bool readDiagnosticRegisters(uint8_t id, uint8_t *response) {
+    const uint8_t parameters[] = {21, 50};
+    sendPacket(id, 0x02, parameters, sizeof(parameters));
+    return readStatus(id, response, 50) == 50;
+  }
+
   void calibrateOffset(uint8_t id) { writeByte(id, 40, 128); }
 
   void enableTorque(uint8_t id, bool enabled) {
@@ -280,8 +287,11 @@ class Sts3215Bus {
     sendPacket(0xfe, 0x83, parameters, sizeof(parameters));
   }
 
+  uint8_t lastStatusError() const { return last_status_error_; }
+
  private:
   HardwareSerial &serial_;
+  uint8_t last_status_error_ = 0;
 
   void writeByte(uint8_t id, uint8_t address, uint8_t value) {
     const uint8_t parameters[] = {address, value};
@@ -309,11 +319,12 @@ class Sts3215Bus {
       checksum += parameters[index];
     }
     serial_.write(static_cast<uint8_t>(~checksum));
-    serial_.flush();
+    serial_.flush(true);
   }
 
   int readStatus(uint8_t expectedId, uint8_t *parameters, size_t capacity) {
-    const uint32_t deadline = millis() + 20;
+    last_status_error_ = 0;
+    const uint32_t deadline = millis() + kServoResponseTimeoutMs;
     bool firstHeaderFound = false;
     while (static_cast<int32_t>(deadline - millis()) > 0) {
       if (!serial_.available()) {
@@ -337,6 +348,7 @@ class Sts3215Bus {
     const uint8_t id = serial_.read();
     const uint8_t length = serial_.read();
     const uint8_t error = serial_.read();
+    last_status_error_ = error;
     if (id != expectedId || length < 2) {
       return -1;
     }
@@ -354,7 +366,7 @@ class Sts3215Bus {
       }
     }
     const uint8_t receivedChecksum = serial_.read();
-    if (receivedChecksum != static_cast<uint8_t>(~checksum) || error != 0 ||
+    if (receivedChecksum != static_cast<uint8_t>(~checksum) ||
         parameterCount > capacity) {
       return -1;
     }
@@ -410,10 +422,177 @@ uint8_t calibrateConnectedServos() {
   return foundCount;
 }
 
+uint8_t scanConnectedServos() {
+  reply("Scanning servo IDs 0..20");
+  uint8_t foundCount = 0;
+
+  for (uint16_t id = kFirstServoId; id <= kLastServoId; ++id) {
+    if (servoBus.ping(static_cast<uint8_t>(id)) == -1) {
+      continue;
+    }
+
+    ++foundCount;
+    const int position = servoBus.readPosition(static_cast<uint8_t>(id));
+    reply(
+        "Servo found: ID " + String(id) +
+        " raw=" + String(position) +
+        " status=0x" + String(servoBus.lastStatusError(), HEX));
+    delay(25);
+  }
+
+  if (foundCount == 0) {
+    reply("ERROR: no servo found");
+    return 0;
+  }
+
+  reply("Scan complete: " + String(foundCount) + " servo(s)");
+  return foundCount;
+}
+
+void beginServoSerial(uint32_t baudRate) {
+  Serial1.end();
+  delay(50);
+  Serial1.begin(
+      baudRate,
+      SERIAL_8N1,
+      kServoRxPin,
+      kServoTxPin);
+  delay(100);
+}
+
+void beginServoSerial(uint32_t baudRate, int rxPin, int txPin) {
+  Serial1.end();
+  delay(50);
+  Serial1.begin(
+      baudRate,
+      SERIAL_8N1,
+      rxPin,
+      txPin);
+  delay(100);
+}
+
+void reportServoPort() {
+  reply(
+      "SERVO_PORT rx=" + String(kServoRxPin) +
+      " tx=" + String(kServoTxPin) +
+      " baud=" + String(kServoBaudRate));
+}
+
+void scanServoBaudRates() {
+  const uint32_t baudRates[] = {1000000, 500000, 115200, 57600};
+  uint8_t totalFound = 0;
+
+  for (uint32_t baudRate : baudRates) {
+    reply("Trying baud " + String(baudRate));
+    beginServoSerial(baudRate);
+
+    for (uint16_t id = kFirstServoId; id <= kLastServoId; ++id) {
+      if (servoBus.ping(static_cast<uint8_t>(id)) == -1) {
+        continue;
+      }
+
+      ++totalFound;
+      const int position = servoBus.readPosition(static_cast<uint8_t>(id));
+      reply(
+          "Servo found: baud=" + String(baudRate) +
+          " ID " + String(id) +
+          " raw=" + String(position) +
+          " status=0x" + String(servoBus.lastStatusError(), HEX));
+      delay(25);
+    }
+  }
+
+  beginServoSerial(kServoBaudRate);
+  if (totalFound == 0) {
+    reply("ERROR: no servo found at tested baud rates");
+    return;
+  }
+  reply("Baud scan complete: " + String(totalFound) + " match(es)");
+}
+
+void scanServoPins() {
+  struct PinPair {
+    int rx;
+    int tx;
+  };
+  const PinPair pinPairs[] = {
+      {kServoRxPin, kServoTxPin},
+      {kServoTxPin, kServoRxPin},
+      {16, 17},
+      {17, 16},
+      {26, 27},
+      {27, 26},
+      {32, 33},
+      {33, 32},
+      {4, 5},
+      {5, 4},
+  };
+  uint8_t totalFound = 0;
+
+  for (const PinPair &pins : pinPairs) {
+    reply("Trying pins rx=" + String(pins.rx) + " tx=" + String(pins.tx));
+    beginServoSerial(kServoBaudRate, pins.rx, pins.tx);
+
+    for (uint16_t id = kFirstServoId; id <= kLastServoId; ++id) {
+      if (servoBus.ping(static_cast<uint8_t>(id)) == -1) {
+        continue;
+      }
+
+      ++totalFound;
+      const int position = servoBus.readPosition(static_cast<uint8_t>(id));
+      reply(
+          "Servo found: rx=" + String(pins.rx) +
+          " tx=" + String(pins.tx) +
+          " ID " + String(id) +
+          " raw=" + String(position) +
+          " status=0x" + String(servoBus.lastStatusError(), HEX));
+      delay(25);
+    }
+  }
+
+  beginServoSerial(kServoBaudRate);
+  if (totalFound == 0) {
+    reply("ERROR: no servo found on tested pin pairs");
+    return;
+  }
+  reply("Pin scan complete: " + String(totalFound) + " match(es)");
+}
+
 bool parseId(const String &text, int &id) {
   char trailing = '\0';
   return sscanf(text.c_str(), "%d %c", &id, &trailing) == 1 &&
          id >= kFirstServoId && id <= 253;
+}
+
+void readServoDiagnostics(const String &arguments) {
+  int id = -1;
+  unsigned long request = 0;
+  char trailing = 0;
+  if (sscanf(arguments.c_str(), "%d %lu %c", &id, &request, &trailing) != 2 ||
+      id < 1 || id > 2) {
+    reply("ERROR: use DIAG <1|2> <request>");
+    return;
+  }
+  uint8_t data[50];
+  const bool ok = servoBus.readDiagnosticRegisters(id, data);
+  String result = "DIAG {\"id\":" + String(id) + ",\"request\":" + String(request) +
+      ",\"ok\":" + String(ok ? "true" : "false") +
+      ",\"status\":" + String(servoBus.lastStatusError()) + ",\"registers_26_70\":[";
+  if (ok) {
+    for (size_t i = 5; i < sizeof(data); ++i) {
+      if (i != 5) result += ',';
+      result += String(data[i]);
+    }
+  }
+  result += "],\"registers_21_25\":[";
+  if (ok) {
+    for (size_t i = 0; i < 5; ++i) {
+      if (i) result += ',';
+      result += String(data[i]);
+    }
+  }
+  result += "]}";
+  reply(result);
 }
 
 void readServoPosition(const String &arguments) {
@@ -432,7 +611,8 @@ void readServoPosition(const String &arguments) {
   reply(
       "POSITION id=" + String(id) + " logical=" +
       String(rawPosition - kServoMiddlePosition) + " raw=" +
-      String(rawPosition));
+      String(rawPosition) +
+      " status=0x" + String(servoBus.lastStatusError(), HEX));
 }
 
 void moveServo(const String &arguments) {
@@ -512,6 +692,9 @@ void moveServoRaw(const String &arguments) {
 }
 
 void syncMoveServos(const String &arguments) {
+  static int verifiedFirstId = -1;
+  static int verifiedSecondId = -1;
+  static uint32_t verifiedAtMs = 0;
   int firstId = -1;
   int firstLogical = 0;
   int secondId = -1;
@@ -546,10 +729,19 @@ void syncMoveServos(const String &arguments) {
     reply("ERROR: target exceeds configured gripper limits");
     return;
   }
-  if (servoBus.ping(static_cast<uint8_t>(firstId)) == -1 ||
-      servoBus.ping(static_cast<uint8_t>(secondId)) == -1) {
-    reply("ERROR: one or both servo IDs were not found");
-    return;
+  // Reuse only a recent successful check for this exact pair. Do not extend
+  // the window on cache hits, so continuous traffic still rechecks the bus.
+  if (firstId != verifiedFirstId || secondId != verifiedSecondId ||
+      static_cast<uint32_t>(millis() - verifiedAtMs) >= 50) {
+    verifiedFirstId = verifiedSecondId = -1;
+    if (servoBus.ping(static_cast<uint8_t>(firstId)) == -1 ||
+        servoBus.ping(static_cast<uint8_t>(secondId)) == -1) {
+      reply("ERROR: one or both servo IDs were not found");
+      return;
+    }
+    verifiedAtMs = millis();
+    verifiedFirstId = firstId;
+    verifiedSecondId = secondId;
   }
 
   servoBus.syncWriteTwoPositions(
@@ -563,6 +755,21 @@ void syncMoveServos(const String &arguments) {
       "SYNC_MOVE sent: id=" + String(firstId) + " logical=" +
       String(firstLogical) + ", id=" + String(secondId) + " logical=" +
       String(secondLogical));
+}
+
+void holdGripper() {
+  const int first = servoBus.readPosition(1);
+  const int second = servoBus.readPosition(2);
+  if (first < 0 || second < 0) {
+    reply("ERROR: HOLD position read failed id1=" + String(first) + " id2=" + String(second));
+    return;
+  }
+  if (!rawPositionIsSafe(1, first) || !rawPositionIsSafe(2, second)) {
+    reply("ERROR: HOLD position outside configured limits");
+    return;
+  }
+  servoBus.syncWriteTwoPositions(1, first, 2, second, 20, 1);
+  reply("HOLD sent: id1=" + String(first) + " id2=" + String(second));
 }
 
 void pairMoveServos(const String &arguments) {
@@ -747,6 +954,26 @@ void handleCommand(String command) {
     return;
   }
 
+  if (command.equalsIgnoreCase("SCAN")) {
+    scanConnectedServos();
+    return;
+  }
+
+  if (command.equalsIgnoreCase("SCAN_BAUD")) {
+    scanServoBaudRates();
+    return;
+  }
+
+  if (command.equalsIgnoreCase("SCAN_PINS")) {
+    scanServoPins();
+    return;
+  }
+
+  if (command.equalsIgnoreCase("SERVO_PORT")) {
+    reportServoPort();
+    return;
+  }
+
   if (command.equalsIgnoreCase("OPEN")) {
     pairMoveServos("0");
     return;
@@ -763,6 +990,14 @@ void handleCommand(String command) {
 
   if (verb.equalsIgnoreCase("READ")) {
     readServoPosition(arguments);
+    return;
+  }
+  if (verb.equalsIgnoreCase("DIAG")) {
+    readServoDiagnostics(arguments);
+    return;
+  }
+  if (verb.equalsIgnoreCase("HOLD")) {
+    holdGripper();
     return;
   }
 
@@ -806,7 +1041,7 @@ void handleCommand(String command) {
     return;
   }
 
-  reply("ERROR: use PING, OPEN, CLOSE, SET_ZERO, CLEAR_OFFSET, SET_ID, READ, MOVE, RAW_MOVE, SYNC_MOVE, PAIR_MOVE, TORQUE_ON, or TORQUE_OFF");
+  reply("ERROR: use PING, SCAN, SCAN_BAUD, SCAN_PINS, SERVO_PORT, OPEN, CLOSE, SET_ZERO, CLEAR_OFFSET, SET_ID, READ, MOVE, RAW_MOVE, SYNC_MOVE, PAIR_MOVE, TORQUE_ON, or TORQUE_OFF");
 }
 
 void readBluetoothCommand() {
@@ -842,11 +1077,7 @@ void setup() {
   showStatus("BOOTING", "STS3215 Gripper");
   delay(500);
 
-  Serial1.begin(
-      kServoBaudRate,
-      SERIAL_8N1,
-      kServoRxPin,
-      kServoTxPin);
+  beginServoSerial(kServoBaudRate);
   bluetoothCommand.reserve(kMaxCommandLength);
   delay(1000);
 
@@ -861,7 +1092,7 @@ void setup() {
 
   Serial.print("Bluetooth started: ");
   Serial.println(kBluetoothName);
-  Serial.println("Commands: PING, OPEN, CLOSE, SET_ZERO, CLEAR_OFFSET, SET_ID, READ, MOVE, RAW_MOVE, SYNC_MOVE, PAIR_MOVE, TORQUE_ON, TORQUE_OFF");
+  Serial.println("Commands: PING, SCAN, SCAN_BAUD, SCAN_PINS, SERVO_PORT, OPEN, CLOSE, SET_ZERO, CLEAR_OFFSET, SET_ID, READ, MOVE, RAW_MOVE, SYNC_MOVE, PAIR_MOVE, TORQUE_ON, TORQUE_OFF");
   showStatus("BT READY", "Searching...");
 }
 

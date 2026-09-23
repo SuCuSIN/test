@@ -4,7 +4,7 @@ ur5e_gello_publisher:
     baudrate: 1000000
     offset_file: "servo_offsets.json"
     control_mode: "rtde_servoj"
-    robot_ip: "192.168.0.193"
+    robot_ip: "192.168.50.14"
     rtde_velocity: 0.5
     rtde_acceleration: 0.5
     rtde_dt: 0.008
@@ -33,8 +33,8 @@ ur5e_gello_publisher:
     gripper_max_rad: 1.5
     gripper_min_width: 0.012
     gripper_max_width: 0.13
-    gripper_min_raw: 3459
-    gripper_max_raw: 4000
+    gripper_min_raw: 3425
+    gripper_max_raw: 3924
     gripper_encoder_ticks: 4096
     gripper_wrap_open_raw: 700
     gripper_control_mode: "open_close"

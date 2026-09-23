@@ -27,6 +27,7 @@ setup(
             "fake_ur5e_gello_publisher = ur5e_gello_state_publisher.fake_ur5e_gello_publisher:main",
             "lerobot_demo_recorder = ur5e_gello_state_publisher.lerobot_demo_recorder:main",
             "rg6_tool_tcp_node = ur5e_gello_state_publisher.rg6_tool_tcp_node:main",
+            "tracking_report_recorder = ur5e_gello_state_publisher.tracking_report_recorder:main",
             "ur5e_gello_publisher = ur5e_gello_state_publisher.ur5e_gello_publisher:main",
         ],
     },

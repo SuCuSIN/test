@@ -9,7 +9,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image, JointState
-from std_msgs.msg import Float64MultiArray
+from std_msgs.msg import Bool, Float64MultiArray
 from std_srvs.srv import Trigger
 
 try:
@@ -164,6 +164,7 @@ class LeRobotDemoRecorder(Node):
             self.image_callback,
             10,
         )
+        self.create_subscription(Bool, "/save_demo", self.save_demo_callback, 10)
         self.create_service(Trigger, "save_episode", self.save_episode_service)
         self.create_timer(1.0 / self.fps, self.record_timer_callback)
 
@@ -473,6 +474,11 @@ class LeRobotDemoRecorder(Node):
             else "no frames recorded"
         )
         return response
+
+    def save_demo_callback(self, message: Bool) -> None:
+        if message.data:
+            if self.save_episode():
+                self.get_logger().info("Manual /save_demo request saved the episode.")
 
     def save_episode(self) -> bool:
         if self.saving_episode:

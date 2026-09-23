@@ -1,2 +1,2 @@
 pyserial>=3.5
-
+anyskin>=1.0.0

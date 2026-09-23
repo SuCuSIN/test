@@ -81,7 +81,7 @@ def generate_launch_description():
         [
             DeclareLaunchArgument("config_file", default_value=default_config),
             DeclareLaunchArgument("gello_port", default_value="/dev/ttyACM0"),
-            DeclareLaunchArgument("robot_ip", default_value="192.168.0.193"),
+            DeclareLaunchArgument("robot_ip", default_value="192.168.50.14"),
             DeclareLaunchArgument("tool_tcp_port", default_value="54321"),
             DeclareLaunchArgument("launch_gripper", default_value="false"),
             DeclareLaunchArgument("gripper_force", default_value="20"),

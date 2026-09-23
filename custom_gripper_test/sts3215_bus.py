@@ -10,9 +10,12 @@ import serial
 
 HEADER = b"\xff\xff"
 INSTRUCTION_PING = 0x01
+INSTRUCTION_READ = 0x02
 INSTRUCTION_WRITE = 0x03
 ID_ADDRESS = 5
 LOCK_ADDRESS = 55
+PRESENT_POSITION_ADDRESS = 56
+GOAL_POSITION_ADDRESS = 41
 MIN_SERVO_ID = 0
 MAX_SERVO_ID = 253
 
@@ -68,9 +71,76 @@ def ping(ser: serial.Serial, servo_id: int) -> bool:
     return transact(ser, _packet(servo_id, INSTRUCTION_PING), servo_id) is not None
 
 
+def status_error(packet: Optional[bytes]) -> Optional[int]:
+    if packet is None or len(packet) < 6:
+        return None
+    return packet[4]
+
+
+def status_parameters(packet: Optional[bytes]) -> bytes:
+    if packet is None or len(packet) < 6:
+        return b""
+    return packet[5:-1]
+
+
+def read_bytes(ser: serial.Serial, servo_id: int, address: int, length: int) -> Optional[bytes]:
+    if not 0 <= address <= 255:
+        raise ValueError(f"Address must be 0..255: {address}")
+    if not 1 <= length <= 255:
+        raise ValueError(f"Read length must be 1..255: {length}")
+    packet = transact(
+        ser,
+        _packet(servo_id, INSTRUCTION_READ, bytes((address, length))),
+        servo_id,
+    )
+    parameters = status_parameters(packet)
+    if len(parameters) != length:
+        return None
+    return parameters
+
+
+def read_word(ser: serial.Serial, servo_id: int, address: int) -> Optional[int]:
+    data = read_bytes(ser, servo_id, address, 2)
+    if data is None:
+        return None
+    return data[0] | (data[1] << 8)
+
+
+def read_position(ser: serial.Serial, servo_id: int) -> Optional[int]:
+    return read_word(ser, servo_id, PRESENT_POSITION_ADDRESS)
+
+
 def write_byte(ser: serial.Serial, servo_id: int, address: int, value: int) -> bool:
     if not 0 <= value <= 255:
         raise ValueError(f"Byte value must be 0..255: {value}")
     parameters = bytes((address, value))
     return transact(ser, _packet(servo_id, INSTRUCTION_WRITE, parameters), servo_id) is not None
 
+
+def write_position(
+    ser: serial.Serial,
+    servo_id: int,
+    position: int,
+    speed: int = 1000,
+    acceleration: int = 50,
+) -> bool:
+    if not 0 <= position <= 4095:
+        raise ValueError(f"Position must be 0..4095: {position}")
+    if not 0 <= speed <= 4095:
+        raise ValueError(f"Speed must be 0..4095: {speed}")
+    if not 0 <= acceleration <= 255:
+        raise ValueError(f"Acceleration must be 0..255: {acceleration}")
+
+    parameters = bytes(
+        (
+            GOAL_POSITION_ADDRESS,
+            acceleration,
+            position & 0xFF,
+            (position >> 8) & 0xFF,
+            0,
+            0,
+            speed & 0xFF,
+            (speed >> 8) & 0xFF,
+        )
+    )
+    return transact(ser, _packet(servo_id, INSTRUCTION_WRITE, parameters), servo_id) is not None
